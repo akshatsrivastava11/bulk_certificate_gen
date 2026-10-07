@@ -1,0 +1,95 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: cert_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-certdb}
+      POSTGRES_USER: ${POSTGRES_USER:-certuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-certpassword}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-certuser} -d ${POSTGRES_DB:-certdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cert_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: cert_api
+    restart: unless-stopped
+    command: flask run --host=0.0.0.0 --port=5000
+    environment:
+      FLASK_APP: app
+      FLASK_ENV: ${FLASK_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-certuser}:${POSTGRES_PASSWORD:-certpassword}@db:5432/${POSTGRES_DB:-certdb}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-super-secret-key-change-in-production}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CERTIFICATES_DIR: /app/generated_certificates
+    volumes:
+      - certificates_data:/app/generated_certificates
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    container_name: cert_worker
+    restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4 -Q certificates
+    environment:
+      FLASK_APP: app
+      DATABASE_URL: postgresql://${POSTGRES_USER:-certuser}:${POSTGRES_PASSWORD:-certpassword}@db:5432/${POSTGRES_DB:-certdb}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-super-secret-key-change-in-production}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CERTIFICATES_DIR: /app/generated_certificates
+    volumes:
+      - certificates_data:/app/generated_certificates
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  flower:
+    build: .
+    container_name: cert_flower
+    restart: unless-stopped
+    command: celery -A app.celery_app flower --port=5555
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - worker
+
+volumes:
+  postgres_data:
+  certificates_data:

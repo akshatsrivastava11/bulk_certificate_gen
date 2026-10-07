@@ -1,0 +1,14 @@
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.7
+psycopg2-binary==2.9.9
+celery[redis]==5.3.6
+redis==5.0.4
+reportlab==4.2.0
+Pillow==10.3.0
+marshmallow==3.21.2
+python-dotenv==1.0.1
+flower==2.0.1
+gunicorn==22.0.0
+pytest==9.1.1
+requests==2.34.2
